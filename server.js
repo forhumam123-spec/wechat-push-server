@@ -71,7 +71,7 @@ db.ref('messages').on('child_added', async (snap) => {
         },
       },
       data: {
-        from: sender,
+        sender: sender,
         msgKey: key,
         ts: String(msg.ts),
       },
