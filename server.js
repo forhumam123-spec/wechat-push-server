@@ -1,6 +1,5 @@
 const admin = require('firebase-admin');
 
-// ── Init Firebase Admin ──
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -9,13 +8,10 @@ admin.initializeApp({
 });
 
 const db = admin.database();
-
 console.log('✅ Push server started — listening to Firebase RTDB...');
 
-// ── Track pesan yang sudah dinotif (cegah duplikat) ──
 const notified = new Set();
 
-// ── Listen ke semua pesan baru ──
 db.ref('messages').on('child_added', async (snap) => {
   const msg = snap.val();
   const key = snap.key;
@@ -24,71 +20,82 @@ db.ref('messages').on('child_added', async (snap) => {
   if (notified.has(key)) return;
   notified.add(key);
 
-  // Jangan notif pesan lama (lebih dari 30 detik)
   if (Date.now() - msg.ts > 30000) return;
 
-  const sender = msg.from;        // 'humam' atau 'rama'
+  const sender = msg.from;
   const receiver = sender === 'humam' ? 'rama' : 'humam';
 
-  console.log(`📨 Pesan baru dari ${sender} ke ${receiver}: "${msg.text?.slice(0, 40)}"`);
+  // Skip kalau penerima sedang online
+  try {
+    const presSnap = await db.ref(`presence/${receiver}`).once('value');
+    const pres = presSnap.val();
+    if (pres && pres.online) {
+      console.log(`⏭️  ${receiver} online, skip notif`);
+      return;
+    }
+  } catch(e) {}
 
-  // Ambil FCM token penerima
+  const senderDisplay = sender === 'humam' ? 'Humam' : 'Rama';
+  const bodyText = msg.text.length > 100 ? msg.text.slice(0, 97) + '...' : msg.text;
+
   try {
     const tokenSnap = await db.ref(`tokens/${receiver}`).once('value');
     const tokenData = tokenSnap.val();
+    if (!tokenData || !tokenData.token) return;
 
-    if (!tokenData || !tokenData.token) {
-      console.log(`⚠️  Token ${receiver} tidak ditemukan`);
-      return;
-    }
-
-    const fcmToken = tokenData.token;
-
-    // Nama display pengirim
-    const senderDisplay = sender === 'humam' ? 'Humam' : 'Rama';
-
-    // Kirim notif FCM
-    const message = {
-      token: fcmToken,
+    await admin.messaging().send({
+      token: tokenData.token,
       notification: {
         title: senderDisplay,
-        body: msg.text.length > 100 ? msg.text.slice(0, 97) + '...' : msg.text,
+        body: bodyText,
       },
       android: {
         priority: 'high',
+        collapseKey: `chat_${receiver}`,
         notification: {
           sound: 'default',
           channelId: 'wechat_messages',
-          clickAction: 'FLUTTER_NOTIFICATION_CLICK',
-        },
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: 'default',
-            badge: 1,
-          },
+          tag: `chat_${receiver}`,
+          clickAction: 'OPEN_CHAT',
+          actions: [
+            { action: 'REPLY', title: 'Balas' },
+            { action: 'MARK_READ', title: 'Tandai Dibaca' },
+          ],
         },
       },
       data: {
-        sender: sender,
+        type: 'message',
+        sender,
+        senderDisplay,
         msgKey: key,
         ts: String(msg.ts),
+        body: bodyText,
       },
-    };
-
-    await admin.messaging().send(message);
+    });
     console.log(`✅ Notif terkirim ke ${receiver}`);
-
   } catch (err) {
-    console.error(`❌ Gagal kirim notif:`, err.message);
+    console.error(`❌ Gagal:`, err.message);
   }
 });
 
-// ── Keep alive (Render free tier butuh HTTP port) ──
+// ── Handle aksi MARK_READ dari notif (via Firebase) ──
+// App tulis ke RTDB saat user tap "Tandai Dibaca" dari notif
+db.ref('notifActions').on('child_added', async (snap) => {
+  const action = snap.val();
+  if (!action) return;
+
+  if (action.type === 'markRead' && action.user && db) {
+    try {
+      await db.ref(`readAt/${action.user}`).set({ ts: Date.now() });
+      await snap.ref.remove();
+      console.log(`✅ Mark read untuk ${action.user}`);
+    } catch(e) {}
+  }
+});
+
+// ── Keep alive ──
 const http = require('http');
 const PORT = process.env.PORT || 3000;
-
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end('Push server aktif ✅');
