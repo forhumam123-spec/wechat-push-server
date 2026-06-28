@@ -25,16 +25,6 @@ db.ref('messages').on('child_added', async (snap) => {
   const sender = msg.from;
   const receiver = sender === 'humam' ? 'rama' : 'humam';
 
-  // Skip kalau penerima sedang online
-  try {
-    const presSnap = await db.ref(`presence/${receiver}`).once('value');
-    const pres = presSnap.val();
-    if (pres && pres.online) {
-      console.log(`⏭️  ${receiver} online, skip notif`);
-      return;
-    }
-  } catch(e) {}
-
   const senderDisplay = sender === 'humam' ? 'Humam' : 'Rama';
   const bodyText = msg.text.length > 100 ? msg.text.slice(0, 97) + '...' : msg.text;
 
