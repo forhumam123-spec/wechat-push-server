@@ -51,15 +51,20 @@ db.ref('messages').on('child_added', async (snap) => {
       },
       android: {
         priority: 'high',
-        collapseKey: `chat_${receiver}`,
         notification: {
           sound: 'default',
           channelId: 'wechat_messages',
-          tag: `chat_${receiver}`,
           clickAction: 'OPEN_CHAT',
+          // Tombol aksi di notif Android
           actions: [
-            { action: 'REPLY', title: 'Balas' },
-            { action: 'MARK_READ', title: 'Tandai Dibaca' },
+            {
+              action: 'REPLY',
+              title: 'Balas',
+            },
+            {
+              action: 'MARK_READ',
+              title: 'Tandai Dibaca',
+            },
           ],
         },
       },
